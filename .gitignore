@@ -1,0 +1,6 @@
+Spring*/
+*.jpg
+*.png
+*.vti
+*.csv
+**/__pycache__/
