@@ -54,7 +54,6 @@ class Ui_MainWindow(object):
         self.gridlayout = QGridLayout(self.centralWidget)
         self.vtkWidget = QVTKRenderWindowInteractor(self.centralWidget)
         # Sliders
-        # self.slider_scale_factor = QSlider()
         self.slider_time = QSlider()
         self.water_level_label = QLabel("Water Level: ")
         self.date_label = QLabel("Date: ")
@@ -87,11 +86,7 @@ class Ui_MainWindow(object):
         self.btn_play = QPushButton("Play")
         
         # Add to layout
-        # self.gridlayout.addWidget(self.water_level_label, 4, 0, 1, 2)
-        # self.gridlayout.addWidget(self.date_label, 5, 0, 1, 2)
-        # self.gridlayout.addWidget(self.slider_time, 6, 0, 1, 4)
         self.gridlayout.addWidget(self.btn_play, 6, 5, 1, 1)
-
         self.gridlayout.addWidget(self.vtkWidget, 0, 0, 4, 4)
         self.gridlayout.addWidget(self.slider_time, 4, 0, 1, 4)
         self.gridlayout.addWidget(self.water_level_label, 5, 0, 1, 2)
@@ -125,12 +120,8 @@ def get_program_parameters():
     parser.add_argument('-o', '--output', type=str, metavar='filename', help='Base name for screenshots', default='frame_')
     parser.add_argument('-v', '--verbose', action='store_true', help='Toggle on verbose output')
 
-
     args = parser.parse_args()
     return args
-
-
-# def main():
     
 
 class PyQtDemo(QMainWindow):
@@ -142,7 +133,6 @@ class PyQtDemo(QMainWindow):
         self.timer = QTimer()
         self.animation_running = False
         
-
         self.args = args
         self.scale_factor = self.args.s
 
@@ -152,16 +142,14 @@ class PyQtDemo(QMainWindow):
         self.warped_data = self.warp_geometry(topo_geometry, self.scale_factor)
         self.mapper = self.to_mapper(self.warped_data)
         self.actor = self.to_actor(self.mapper)
-
-        # # Apply the texture to the actor.
         self.actor.SetTexture(texture)
-        # Create the rendering window, renderer, and interactive renderer.
 
-        self.warp_water = self.warp_geometry(mask_geometry, self.scale_factor * 4200)
+        record = self.water_level.iloc[0]
+        water_elevation = record['325949_62614_00003'] * self.scale_factor
+        self.warp_water = self.warp_geometry(mask_geometry, water_elevation)
         self.warp_mapper = self.to_mapper(self.warp_water)
         self.warp_actor = self.to_actor(self.warp_mapper)
-        self.warp_actor.GetProperty().SetColor(0.2, 0.4, 0.8)  # Water color
-
+        self.warp_actor.GetProperty().SetColor(28 / 255.0, 60 / 255.0, 76 / 255.0)  # Water color
 
         # Create the Renderer
         self.ren = vtk.vtkRenderer()
@@ -169,13 +157,7 @@ class PyQtDemo(QMainWindow):
         self.ren.AddActor(self.warp_actor)
         self.ui.vtkWidget.GetRenderWindow().AddRenderer(self.ren)
         self.iren = self.ui.vtkWidget.GetRenderWindow().GetInteractor()
-
-        # self.slider_setup(self.ui.slider_scale_factor, self.scale_factor, [1, 100], 2)
-        self.slider_setup(self.ui.slider_time, self.scale_factor, [self.min_date, self.max_date], 0)
-
-
-        
-
+        self.slider_setup(self.ui.slider_time, 0, [self.min_date, self.max_date], 100) 
 
     def read_data(self):
         elevation_file_path = self.args.e
@@ -183,7 +165,6 @@ class PyQtDemo(QMainWindow):
         water_level_file_path = self.args.w
         mask_file_path = self.args.m
      
-
         topo_reader = vtk.vtkXMLImageDataReader()
         topo_reader.SetFileName(elevation_file_path)
         topo_geometry = vtk.vtkImageDataGeometryFilter()
@@ -207,28 +188,22 @@ class PyQtDemo(QMainWindow):
     
 
     def warp_geometry(self, geometry, scale_factor):
-
-        # # Warp the data in a direction perpendicular to the image plane.
         warp = vtk.vtkWarpScalar()
         warp.SetInputConnection(geometry.GetOutputPort())
         warp.SetScaleFactor(scale_factor)
         return warp
 
     def to_mapper(self, warped_data):
-        # Use vtkMergeFilter to combine the original image with the warped geometry.
         mapper = vtk.vtkDataSetMapper()
         mapper.SetInputConnection(warped_data.GetOutputPort())
-        # mapper.SetScalarRange(0, 255)
         mapper.ScalarVisibilityOff()
         return mapper
-
 
     def to_actor(self, mapper):
         actor = vtk.vtkActor()
         actor.SetMapper(mapper)
         return actor
-
-    
+   
     # Setting up widgets
     def slider_setup(self, slider, val, bounds, interv):
         slider.setOrientation(QtCore.Qt.Horizontal)
@@ -239,22 +214,11 @@ class PyQtDemo(QMainWindow):
         slider.setRange(bounds[0], bounds[1])
 
  
-
-    # def scale_factor_callback(self, val):
-    #     self.scale_factor = val
-    #     # self.edges.SetRadius(self.radius)
-    #     self.warped_data.SetScaleFactor(self.scale_factor)
-    #     self.ui.log.insertPlainText('Scale Factor set to {}\n'.format(self.scale_factor))
-    #     self.ui.vtkWidget.GetRenderWindow().Render()
-
     def update_water_level(self, idx):
         record = self.water_level.iloc[idx]
         water_elevation = record['325949_62614_00003'] * self.scale_factor
-        
         self.warp_water.SetScaleFactor(water_elevation)
         self.warp_water.Update()
-        
-        # Update labels with formatted values
         self.ui.water_level_label.setText(f"Water Level: {record['325949_62614_00003']:.2f} ft")
         self.ui.date_label.setText(f"Date: {record['datetime']}")
         self.ui.vtkWidget.GetRenderWindow().Render()
@@ -264,7 +228,7 @@ class PyQtDemo(QMainWindow):
             self.timer.stop()
             self.ui.btn_play.setText("Play Animation")
         else:
-            self.timer.start(100)  # 10 FPS
+            self.timer.start(10) 
             self.ui.btn_play.setText("Stop Animation")
         self.animation_running = not self.animation_running
 
@@ -277,7 +241,6 @@ class PyQtDemo(QMainWindow):
             self.ui.btn_play.setText("Play Animation")
             self.animation_running = False
 
-
     def screenshot_callback(self):
         save_frame(self.ui.vtkWidget.GetRenderWindow(), self.ui.log)
 
@@ -288,13 +251,8 @@ class PyQtDemo(QMainWindow):
         sys.exit()
 
 
-
-
-
 if __name__ == '__main__':
-    # main()
     global args
-
     args = get_program_parameters()
 
     app = QApplication(sys.argv)
@@ -303,14 +261,16 @@ if __name__ == '__main__':
     window.ui.log.insertPlainText('Set render window resolution to {}\n'.format(args.resolution))
     window.show()
     window.setWindowState(Qt.WindowMaximized)  # Maximize the window
+
     window.iren.Initialize() # Need this line to actually show
                              # the render inside Qt
-    # window.ui.slider_time.setRange(self.min_date, self.max_date)
+    window.ui.slider_time.setRange(window.min_date, window.max_date)
     window.ui.slider_time.valueChanged.connect(window.update_water_level)
-    # window.ui.slider_scale_factor.valueChanged.connect(window.scale_factor_callback)
     window.ui.btn_play.clicked.connect(window.toggle_animation)
     window.timer.timeout.connect(window.animation_step)
     window.ui.push_screenshot.clicked.connect(window.screenshot_callback)
     window.ui.push_camera.clicked.connect(window.camera_callback)
     window.ui.push_quit.clicked.connect(window.quit_callback)
+    window.update_water_level(0)  # 0 represents the first row in your CSV
+
     sys.exit(app.exec_())
