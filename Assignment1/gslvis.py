@@ -10,8 +10,6 @@ import argparse
 import pandas as pd
 
 
-
-
 frame_counter = 0
 
 def save_frame(window, log):
@@ -235,7 +233,7 @@ class PyQtDemo(QMainWindow):
     def animation_step(self):
         current_idx = self.ui.slider_time.value()
         if current_idx < self.max_date:
-            self.ui.slider_time.setValue(current_idx + 5)
+            self.ui.slider_time.setValue(current_idx + 30)
         else:
             self.timer.stop()
             self.ui.btn_play.setText("Play Animation")

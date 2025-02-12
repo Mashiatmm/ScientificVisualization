@@ -4,3 +4,5 @@ Spring*/
 *.vti
 *.csv
 **/__pycache__/
+*.zip
+**/Submission/
