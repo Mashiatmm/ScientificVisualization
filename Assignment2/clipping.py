@@ -16,7 +16,7 @@ from vtk_colorbar import colorbar_param, colorbar
 
 frame_counter = 0
 ctrl_pts = [2000, 14000, 17000, 40000]
-opacities = [0.3, 0.5, 0.8, 1.0]
+opacities = [0.4, 0.5, 0.8, 1.0]
 colors = [
         (0.5, 0.5, 0.5),  # Gray
         (1.0, 0.0, 0.0),  # Red
@@ -199,12 +199,9 @@ class PyQtDemo(QMainWindow):
 
         self.args = args
        
-        scalar_volume = self.read_data()   
-        r = scalar_volume.GetOutput().GetScalarRange()
-        self.min_value = r[0]
-        self.max_value = r[1]
-        self.isovalue = self.min_value #args.isovalue
-        self.interval = min( [ctrl_pts[i+1] - ctrl_pts[i] for i in range(len(ctrl_pts) - 1)] )
+        scalar_volume = self.read_data()  
+        self.volume = scalar_volume 
+        self.interval = 100 # min( [ctrl_pts[i+1] - ctrl_pts[i] for i in range(len(ctrl_pts) - 1)] )
         self.numValues = len(ctrl_pts) 
 
         self.ren = vtk.vtkRenderer()
@@ -214,12 +211,6 @@ class PyQtDemo(QMainWindow):
 
         # Setup clipping box
         self.clip_box = vtk.vtkBox()
-        self.clip_filter = vtk.vtkClipPolyData()
-        self.clip_filter.SetClipFunction(self.clip_box)
-        
-        # Create a list to store clip filters for each actor
-        self.clip_filters = []
-        self.contour_actors = []
         
         # Modify the contour creation loop
         for i, (val, color, opacity) in enumerate(zip(ctrl_pts, colors, opacities)):
@@ -233,26 +224,14 @@ class PyQtDemo(QMainWindow):
             mapper = self.to_mapper(clip_filter)  # Connect mapper to clip filter
             actor = self.to_actor(mapper)
             actor.GetProperty().SetColor(color)
-            actor.GetProperty().SetOpacity(opacity)
-            
-            self.contour_actors.append(actor)
-            self.clip_filters.append(clip_filter)
+            actor.GetProperty().SetOpacity(opacity)    
             self.ren.AddActor(actor)
 
-        
-
-        # self.ren.AddActor(self.contourActor)
-        # self.ren.AddActor(self.color_bar.get())  # Add the color bar
         self.ui.vtkWidget.GetRenderWindow().AddRenderer(self.ren)
         camera = self.ren.GetActiveCamera()
         load_camera_from_json(camera, args.c)
 
         self.iren = self.ui.vtkWidget.GetRenderWindow().GetInteractor()
-        # self.slider_setup(self.ui.slider_isovalue, self.isovalue, [int( self.min_value ), int( self.max_value ) ], self.interval)
-           # Setup clipping box
-        # self.clip_box = vtk.vtkBox()
-        # self.clip_filter = vtk.vtkClipPolyData()
-        # self.clip_filter.SetClipFunction(self.clip_box)
         self.init_clipping_controls(scalar_volume)
 
 
@@ -301,7 +280,6 @@ class PyQtDemo(QMainWindow):
         mapper.ScalarVisibilityOff()
         return mapper
 
-
     def to_actor(self, mapper):
         actor = vtk.vtkActor()
         actor.SetMapper(mapper)
@@ -309,17 +287,20 @@ class PyQtDemo(QMainWindow):
 
     def init_clipping_controls(self, volume):
         bounds = volume.GetOutput().GetBounds()
-        self.data_bounds = [int(bounds[i]) for i in range(len(bounds))]
-        
-        # Set slider ranges
-        self.slider_setup(self.ui.clip_x_slider, self.data_bounds[0], 
+        self.data_bounds = bounds 
+        default_clip = [self.data_bounds[1], self.data_bounds[3], self.data_bounds[5]]  # Define these based on your data
+        initial_clip_values = args.clip if args.clip else default_clip
+       
+        self.ui.x_clip_label.setText(f"X Clip : {initial_clip_values[0]}")
+        self.ui.y_clip_label.setText(f"Y Clip : {initial_clip_values[1]}")
+        self.ui.z_clip_label.setText(f"Z Clip : {initial_clip_values[2]}")
+        self.slider_setup(self.ui.clip_x_slider, initial_clip_values[0], 
                          [self.data_bounds[0], self.data_bounds[1]], 100)
-        self.slider_setup(self.ui.clip_y_slider, self.data_bounds[2],
+        self.slider_setup(self.ui.clip_y_slider, initial_clip_values[1],
                          [self.data_bounds[2], self.data_bounds[3]], 100)
-        self.slider_setup(self.ui.clip_z_slider, self.data_bounds[4],
+        self.slider_setup(self.ui.clip_z_slider, initial_clip_values[2],
                          [self.data_bounds[4], self.data_bounds[5]], 100)
-
-        
+        self.update_clipping()
 
     def update_clipping(self):
         x_val = self.ui.clip_x_slider.value()
@@ -339,33 +320,24 @@ class PyQtDemo(QMainWindow):
             self.data_bounds[4] if z_dir else z_val,
             z_val if z_dir else self.data_bounds[5]
         ]
-        
-        # Update the clip box
         self.clip_box.SetBounds(new_bounds)
-        
-        # Update all clip filters
-        for clip_filter in self.clip_filters:
-            clip_filter.Update()
-        
+        self.ui.x_clip_label.setText(f"X Clip : {x_val}")
+        self.ui.y_clip_label.setText(f"Y Clip : {y_val}")
+        self.ui.z_clip_label.setText(f"Z Clip : {z_val}")
         self.ui.vtkWidget.GetRenderWindow().Render()
+
+      
    
     # Setting up widgets
     def slider_setup(self, slider, val, bounds, interv):
         slider.setOrientation(QtCore.Qt.Horizontal)
-        slider.setValue(int(val))
+        slider.setValue( int(val) )
         slider.setTracking(False)
         slider.setTickInterval(interv)
         slider.setTickPosition(QSlider.TicksAbove)
-        slider.setRange(bounds[0], bounds[1])
+        slider.setRange(int(bounds[0]), int(bounds[1]))
 
-    # def isovalue_callback(self, val):
-    #     self.isovalue = val
-    #     self.contours.SetValue(0, self.isovalue)
-    #     self.ui.slider_isovalue.setValue(int(val))
-    #     self.ui.isovalue_label.setText(f"Isovalue: {val}")
-    #     self.ui.log.insertPlainText('Isovalue changed to {}\n'.format(self.isovalue))
-    #     self.ui.vtkWidget.GetRenderWindow().Render()
-
+   
     def screenshot_callback(self):
         save_frame(self.ui.vtkWidget.GetRenderWindow(), self.ui.log)
 
@@ -395,7 +367,7 @@ def get_program_parameters():
     # parser.add_argument('-v', '--verbose', action='store_true', help='Toggle on verbose output')
     parser.add_argument('-v', '--isovalue', type=int, metavar='int', help='Initial isovalue', default= ctrl_pts[0])
     parser.add_argument('-c',  help='Initial Camera Value', default='camera.json')
-
+    parser.add_argument("--clip", nargs=3, type=float, help="Initial positions of the three clipping planes (X, Y, Z)")
     args = parser.parse_args()
     return args
 
@@ -414,7 +386,6 @@ if __name__ == '__main__':
     window.setWindowState(Qt.WindowMaximized)  # Maximize the window
     window.iren.Initialize() # Need this line to actually show
 
-    # window.ui.slider_isovalue.valueChanged.connect(window.isovalue_callback)
     window.ui.push_screenshot.clicked.connect(window.screenshot_callback)
     window.ui.push_camera.clicked.connect(window.camera_callback)
     window.ui.save_camera.clicked.connect(window.save_camera_callback)
@@ -425,4 +396,5 @@ if __name__ == '__main__':
     window.ui.clip_x_check.stateChanged.connect(window.update_clipping)
     window.ui.clip_y_check.stateChanged.connect(window.update_clipping)
     window.ui.clip_z_check.stateChanged.connect(window.update_clipping)
+    window.init_clipping_controls(window.volume)
     sys.exit(app.exec_())
