@@ -25,7 +25,6 @@ colors = [
     ]
 
 
-
 def save_frame(window, log):
     global frame_counter
     global args
@@ -153,7 +152,7 @@ class Ui_MainWindow(object):
         self.gridlayout.addWidget(self.save_camera, 4, 5,  1, 1)
         self.gridlayout.addWidget(self.push_quit, 5, 5, 1, 1)
         MainWindow.setCentralWidget(self.centralWidget)
-    
+
 
 class PyQtDemo(QMainWindow):
 
@@ -164,7 +163,7 @@ class PyQtDemo(QMainWindow):
 
         self.args = args
        
-        scalar_volume = self.read_data()  
+        scalar_volume , self.photo_volume = self.read_data()  
         self.volume = scalar_volume 
         self.interval = 100 # min( [ctrl_pts[i+1] - ctrl_pts[i] for i in range(len(ctrl_pts) - 1)] )
         self.numValues = len(ctrl_pts) 
@@ -176,7 +175,7 @@ class PyQtDemo(QMainWindow):
 
         # Setup clipping box
         self.clip_box = vtk.vtkBox()
-        
+        self.actors = []
         # Modify the contour creation loop
         for i, (val, color, opacity) in enumerate(zip(ctrl_pts, colors, opacities)):
             contour = self.apply_contour_filter(scalar_volume, val)
@@ -191,21 +190,26 @@ class PyQtDemo(QMainWindow):
             actor.GetProperty().SetColor(color)
             actor.GetProperty().SetOpacity(opacity)    
             self.ren.AddActor(actor)
+            self.actors.append(actor)
 
         self.ui.vtkWidget.GetRenderWindow().AddRenderer(self.ren)
         camera = self.ren.GetActiveCamera()
         load_camera_from_json(camera, args.camera)
-
         self.iren = self.ui.vtkWidget.GetRenderWindow().GetInteractor()
         self.init_clipping_controls(scalar_volume)
 
-
     def read_data(self):
-        scalar_data_path = self.args.input
+        scalar_data_path = self.args.input[0]
         scalar_volume = vtk.vtkXMLImageDataReader()
         scalar_volume.SetFileName(scalar_data_path)
         scalar_volume.Update()
-        return scalar_volume
+
+        photo_volume_path = self.args.input[1]
+        photo_volume = vtk.vtkXMLImageDataReader()
+        photo_volume.SetFileName(photo_volume_path)
+        photo_volume.Update()
+
+        return scalar_volume, photo_volume.GetOutput()
     
 
     def apply_contour_filter(self, geometry, isovalue):
@@ -213,6 +217,7 @@ class PyQtDemo(QMainWindow):
         surface.SetInputConnection(geometry.GetOutputPort())
         surface.SetValue(0, isovalue)
         return surface
+
 
     def to_mapper(self, image):
         mapper = vtk.vtkDataSetMapper()
@@ -228,7 +233,7 @@ class PyQtDemo(QMainWindow):
     def init_clipping_controls(self, volume):
         bounds = volume.GetOutput().GetBounds()
         self.data_bounds = bounds 
-        default_clip = [self.data_bounds[1], self.data_bounds[3], self.data_bounds[5]] 
+        default_clip = [self.data_bounds[1], self.data_bounds[3], self.data_bounds[5]]  # Define these based on your data
         initial_clip_values = args.clip if args.clip else default_clip
        
         self.ui.x_clip_label.setText(f"X Clip : {initial_clip_values[0]}")
@@ -240,7 +245,7 @@ class PyQtDemo(QMainWindow):
                          [self.data_bounds[2], self.data_bounds[3]], 100)
         self.slider_setup(self.ui.clip_z_slider, initial_clip_values[2],
                          [self.data_bounds[4], self.data_bounds[5]], 100)
-        self.update_clipping()
+        self.init_probe_planes()
 
     def update_clipping(self):
         x_val = self.ui.clip_x_slider.value()
@@ -261,14 +266,119 @@ class PyQtDemo(QMainWindow):
             z_val if z_dir else self.data_bounds[5]
         ]
         self.clip_box.SetBounds(new_bounds)
+        self.clip_box.Modified() 
         self.ui.x_clip_label.setText(f"X Clip : {x_val}")
         self.ui.y_clip_label.setText(f"Y Clip : {y_val}")
         self.ui.z_clip_label.setText(f"Z Clip : {z_val}")
+        self.update_probe_planes()
+        self.ui.vtkWidget.GetRenderWindow().Render()
+    
+    def init_probe_planes(self):
+        """Create and add probe plane actors once."""
+        self.offset = 15.0 # Offset for visualization
+        self.probe_planes = {}
+        self.planes_initialized = False
+
+        plane_configs = {
+            'yz': {'normal': [1, 0, 0]},  # X-normal plane
+            'xz': {'normal': [0, 1, 0]},  # Y-normal plane
+            'xy': {'normal': [0, 0, 1]}   # Z-normal plane
+        }
+
+        for plane, config in plane_configs.items():
+            # Create plane source with higher resolution
+            plane_source = vtk.vtkPlaneSource()
+            plane_source.SetResolution(100, 100)
+            
+            # Set up probe filter
+            probe_filter = vtk.vtkProbeFilter()
+            probe_filter.SetSourceData(self.photo_volume)
+            probe_filter.SetInputConnection(plane_source.GetOutputPort())
+            probe_filter.PassPointArraysOn()
+
+            # Add clipping
+            clipper = vtk.vtkClipPolyData()
+            clipper.SetClipFunction(self.clip_box)
+            clipper.GenerateClippedOutputOn()
+            clipper.SetInputConnection(probe_filter.GetOutputPort())
+                        
+            # Set up mapper
+            mapper = vtk.vtkDataSetMapper()
+            mapper.SetInputConnection(clipper.GetOutputPort())  # Connect to clipper instead of probe
+            mapper.SetScalarRange(0, 255)
+            mapper.SetColorModeToDirectScalars()
+            
+            # Set up actor
+            actor = vtk.vtkActor()
+            actor.SetMapper(mapper)
+            actor.GetProperty().SetOpacity(1.0)
+            actor.GetProperty().SetAmbient(1.0)
+            actor.GetProperty().SetDiffuse(0.0)
+            actor.VisibilityOff()
+
+            self.ren.AddActor(actor)
+            
+            self.probe_planes[plane] = {
+                'source': plane_source,
+                'probe': probe_filter,
+                'clipper': clipper,  # Store the clipper
+                'mapper': mapper,
+                'actor': actor,
+                'normal': config['normal']
+            }
+   
+    def update_probe_planes(self):
+        x_val = self.ui.clip_x_slider.value()
+        y_val = self.ui.clip_y_slider.value()
+        z_val = self.ui.clip_z_slider.value()
+        bounds = self.data_bounds
+
+        x_dir = self.ui.clip_x_check.isChecked()
+        y_dir = self.ui.clip_y_check.isChecked()
+        z_dir = self.ui.clip_z_check.isChecked()
+
+        plane_x = x_val  
+        if self.ui.clip_x_check.isChecked():
+            plane_x = x_val + self.offset  # Move plane away from clipped region
+        else:
+            plane_x = x_val - self.offset  # Move plane toward clipped region
+        yz_source = self.probe_planes['yz']['source']
+        yz_source.SetOrigin(plane_x, bounds[2], bounds[4])
+        yz_source.SetPoint1(plane_x, bounds[3], bounds[4])
+        yz_source.SetPoint2(plane_x, bounds[2], bounds[5])
+        
+        plane_y = y_val
+        if self.ui.clip_y_check.isChecked():
+            plane_y = y_val + self.offset
+        else:
+            plane_y = y_val - self.offset       
+        xz_source = self.probe_planes['xz']['source']
+        xz_source.SetOrigin(bounds[0], plane_y, bounds[4])
+        xz_source.SetPoint1(bounds[1], plane_y, bounds[4])
+        xz_source.SetPoint2(bounds[0], plane_y, bounds[5])
+
+        # Update XY plane (Z direction)
+        plane_z = z_val  
+        if self.ui.clip_z_check.isChecked():
+            plane_z = z_val + self.offset
+        else:
+            plane_z = z_val - self.offset
+        xy_source = self.probe_planes['xy']['source']
+        xy_source.SetOrigin(bounds[0], bounds[2], plane_z)
+        xy_source.SetPoint1(bounds[1], bounds[2], plane_z)
+        xy_source.SetPoint2(bounds[0], bounds[3], plane_z)
+
+        if not self.planes_initialized:
+            for plane in self.probe_planes.values():
+                plane['actor'].VisibilityOn()
+            self.planes_initialized = True
+        for plane in self.probe_planes.values():
+            plane['source'].Modified()
+            plane['probe'].Modified()
+        
         self.ui.vtkWidget.GetRenderWindow().Render()
 
-      
-   
-    # Setting up widgets
+
     def slider_setup(self, slider, val, bounds, interv):
         slider.setOrientation(QtCore.Qt.Horizontal)
         slider.setValue( int(val) )
@@ -291,17 +401,14 @@ class PyQtDemo(QMainWindow):
         sys.exit()
 
 
-
-
 def get_program_parameters():
     description = 'Isosurfaces'
     epilogue = '''
     Isosurfaces of Human Anatomy
-
    '''
     parser = argparse.ArgumentParser(description=description, epilog=epilogue,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
-    parser.add_argument('-i', '--input', help='Path to the 3D Scalar Dataset', default = 'data/ct_head_small.vti')
+    parser.add_argument('-i', '--input', nargs=2, help='Path to the 3D Scalar Dataset', default = ['data/ct_head_small.vti', 'data/rgb_thorax_small.vti'])
     parser.add_argument('-r', '--resolution', type=int, metavar='int', nargs=2, help='Image resolution', default=[1024, 768])
     parser.add_argument('-o', '--output', type=str, metavar='filename', help='Base name for screenshots', default='frame_')
     # parser.add_argument('-v', '--verbose', action='store_true', help='Toggle on verbose output')
@@ -336,5 +443,5 @@ if __name__ == '__main__':
     window.ui.clip_x_check.stateChanged.connect(window.update_clipping)
     window.ui.clip_y_check.stateChanged.connect(window.update_clipping)
     window.ui.clip_z_check.stateChanged.connect(window.update_clipping)
-    window.init_clipping_controls(window.volume)
+    # window.init_clipping_controls(window.volume)
     sys.exit(app.exec_())

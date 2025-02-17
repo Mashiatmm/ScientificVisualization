@@ -15,13 +15,13 @@ from vtk_colors import import_palette
 from vtk_colorbar import colorbar_param, colorbar
 
 frame_counter = 0
-ctrl_pts = [14000, 17000, 40000, 50000]
+ctrl_pts = [14000, 17000, 35000, 50000]
 
 def make_colormap(min_value, max_value, ctrl_pts):
     num_colors = len(ctrl_pts)# Number of discrete intervals
     # Define colors for each interval
     colors = [
-        (0.5, 0.5, 0.5),  # Gray
+        (206 / 255.0, 176 / 255.0, 165 / 255.0),  # Gray 206,176,165
         (1.0, 0.0, 0.0),  # Red
         (0.7, 0.7, 0.7),  # Light Gray
         (1.0, 1.0, 0.0),  # Yellow
@@ -62,8 +62,6 @@ def save_frame(window, log):
     window.Render()
     png_writer.Write()
     frame_counter += 1
-    if args.verbose:
-        print(file_name + " has been successfully exported")
     log.insertPlainText('Exported {}\n'.format(file_name))
 
 def print_camera_settings(camera, text_window, log):
@@ -176,7 +174,7 @@ class PyQtDemo(QMainWindow):
         r = scalar_volume.GetOutput().GetScalarRange()
         self.min_value = r[0]
         self.max_value = r[1]
-        self.isovalue = args.isovalue
+        self.isovalue = args.val
         self.interval = min( [ctrl_pts[i+1] - ctrl_pts[i] for i in range(len(ctrl_pts) - 1)] )
         self.numValues = len(ctrl_pts) 
         
@@ -196,8 +194,8 @@ class PyQtDemo(QMainWindow):
         self.ren.AddActor(self.contourActor)
         self.ren.AddActor(self.color_bar.get())  # Add the color bar
         self.ui.vtkWidget.GetRenderWindow().AddRenderer(self.ren)
-        camera = self.ren.GetActiveCamera()
-        load_camera_from_json(camera, args.c)
+        camera = self.ren.GetActiveCamera()        
+        load_camera_from_json(camera, args.camera)
 
         self.iren = self.ui.vtkWidget.GetRenderWindow().GetInteractor()
         self.slider_setup(self.ui.slider_isovalue, self.isovalue, [int( self.min_value ), int( self.max_value ) ], self.interval)
@@ -297,8 +295,8 @@ def get_program_parameters():
     parser.add_argument('-r', '--resolution', type=int, metavar='int', nargs=2, help='Image resolution', default=[1024, 768])
     parser.add_argument('-o', '--output', type=str, metavar='filename', help='Base name for screenshots', default='frame_')
     # parser.add_argument('-v', '--verbose', action='store_true', help='Toggle on verbose output')
-    parser.add_argument('-v', '--isovalue', type=int, metavar='int', help='Initial isovalue', default= ctrl_pts[0])
-    parser.add_argument('-c',  help='Initial Camera Value', default='camera.json')
+    parser.add_argument('--val', type=int, metavar='int', help='Initial isovalue', default= ctrl_pts[0])
+    parser.add_argument('--camera',  help='Initial Camera Value', default='camera.json')
 
     args = parser.parse_args()
     return args
